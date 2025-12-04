@@ -68,13 +68,12 @@ DATABASE_CONTENTS = {
 }
 
 def unpad(value, bs=BLOCKSIZE):
-    #pv = ord(value[-1])
     pv = value[-1]
     if pv > bs:
-        raise Exception('Bad padding')
+        raise ValueError('Bad padding')
     padding = value[-pv:]
     if len(padding) != pv or len(set([a for a in padding])) != 1:
-        raise Exception('Bad padding')
+        raise ValueError('Bad padding')
     return value[:-pv]
 
 
@@ -84,18 +83,22 @@ def pad(value, bs=BLOCKSIZE):
 
 
 def encrypt(value, key):
-    iv = Random.new().read(BLOCKSIZE)
-    cipher = AES.new(key, AES.MODE_CBC, iv)
-    padded_value = pad(value)
-    return iv + cipher.encrypt(padded_value)
+    # Use AES-GCM (AEAD) for confidentiality and integrity; no padding required
+    nonce = Random.get_random_bytes(12)
+    cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+    ciphertext, tag = cipher.encrypt_and_digest(value)
+    # Return nonce + tag + ciphertext to allow verification on decrypt
+    return nonce + tag + ciphertext
 
 
 def decrypt(value, key):
-    iv = value[:BLOCKSIZE]
-    decrypt_value = value[BLOCKSIZE:]
-    cipher = AES.new(key, AES.MODE_CBC, iv)
-    decrypted = cipher.decrypt(decrypt_value)
-    return unpad(decrypted)
+    # Parse nonce (12 bytes), tag (16 bytes), then ciphertext
+    nonce = value[:12]
+    tag = value[12:28]
+    ciphertext = value[28:]
+    cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+    decrypted = cipher.decrypt_and_verify(ciphertext, tag)
+    return decrypted
 
 
 def rp(command):
@@ -127,19 +130,19 @@ def index():
 # 1. Cookie setter/getter
 @app.route('/cookie', methods = ['POST', 'GET'])
 def cookie():
-    cookieValue = None
+    cookie_value = None
     value = None
     
     if request.method == 'POST':
-        cookieValue = request.form['value']
-        value = cookieValue
+        cookie_value = request.form['value']
+        value = cookie_value
     elif 'value' in request.cookies:
-        cookieValue = pickle.loads(b64decode(request.cookies['value'])) 
+        cookie_value = pickle.loads(b64decode(request.cookies['value'])) 
     
         
     form = """
     <html>
-       <body>Cookie value: """ + str(cookieValue) +"""
+       <body>Cookie value: """ + str(cookie_value) +"""
           <form action = "/cookie" method = "POST">
              <p><h3>Enter value to be stored in cookie</h3></p>
              <p><input type = 'text' name = 'value'/></p>
